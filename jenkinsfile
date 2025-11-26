@@ -1,23 +1,10 @@
 def dockerImageServer
 def dockerImageClient
-        }
-    }
 
-    post {
-        always {
-            script {
-                bat """
-                echo Cleaning temporary Docker artifacts...
-                docker rmi -f ${IMAGE_NAME_SERVER}:latest 2>NUL || echo Server image not present
-                docker rmi -f ${IMAGE_NAME_CLIENT}:latest 2>NUL || echo Client image not present
-                docker system prune -af 2>NUL || echo Docker prune failed
-                """
-            }
-        }
-    }
-}
+pipeline {
+    agent any
 
-```
+    triggers {
         // Vérifie le repo toutes les 5 minutes
         pollSCM('H/5 * * * *')
     }
@@ -40,9 +27,8 @@ def dockerImageClient
 
         stage('Build Server Image') {
             steps {
-                    dir('Server') {
+                dir('Server') {
                     script {
-                        // Tag "latest" 
                         dockerImageServer = docker.build("${IMAGE_NAME_SERVER}:latest")
                     }
                 }
@@ -51,7 +37,7 @@ def dockerImageClient
 
         stage('Build Client Image') {
             steps {
-                    dir('Client') {
+                dir('Client') {
                     script {
                         dockerImageClient = docker.build("${IMAGE_NAME_CLIENT}:latest")
                     }
@@ -63,7 +49,8 @@ def dockerImageClient
             steps {
                 script {
                     bat """
-                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image --exit-code 0 --severity LOW,MEDIUM,HIGH,CRITICAL ${IMAGE_NAME_SERVER}:latest
+                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock ^
+                    aquasec/trivy:latest image --exit-code 0 --severity LOW,MEDIUM,HIGH,CRITICAL ${IMAGE_NAME_SERVER}:latest
                     """
                 }
             }
@@ -73,7 +60,8 @@ def dockerImageClient
             steps {
                 script {
                     bat """
-                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image --exit-code 0 --severity LOW,MEDIUM,HIGH,CRITICAL ${IMAGE_NAME_CLIENT}:latest
+                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock ^
+                    aquasec/trivy:latest image --exit-code 0 --severity LOW,MEDIUM,HIGH,CRITICAL ${IMAGE_NAME_CLIENT}:latest
                     """
                 }
             }
@@ -88,6 +76,36 @@ def dockerImageClient
                     }
                 }
             }
+        }
+    }
+
+    /***************************************
+     *          NETTOYAGE FINAL
+     ***************************************/
+    post {
+        always {
+            echo "🔄 Nettoyage du pipeline..."
+
+            // Supprimer les conteneurs arrêtés
+            bat """
+            echo 🗑️ Suppression des conteneurs arrêtés...
+            docker container prune -f
+            """
+
+            // Supprimer les images intermédiaires (dangling)
+            bat """
+            echo 🖼️ Suppression des images intermédiaires...
+            docker image prune -f
+            """
+
+            // Supprimer les images MERN locales (facultatif mais recommandé)
+            bat """
+            echo 🧹 Suppression des images locales MERN...
+            docker images | findstr "mern-server" >nul && docker rmi -f ${IMAGE_NAME_SERVER}:latest || echo "Pas d'image server à supprimer"
+            docker images | findstr "mern-client" >nul && docker rmi -f ${IMAGE_NAME_CLIENT}:latest || echo "Pas d'image client à supprimer"
+            """
+
+            echo "✨ Nettoyage terminé."
         }
     }
 }
