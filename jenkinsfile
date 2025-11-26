@@ -5,27 +5,30 @@ pipeline {
     agent any
 
     triggers {
-        // Vérifie le repo toutes les 5 minutes
         pollSCM('H/5 * * * *')
     }
 
     environment {
-        // ID des credentials Docker Hub (Jenkins > Credentials)
         DOCKERHUB_CREDENTIALS_ID = 'dockerhub'
-
-        // Noms des images Docker Hub
         IMAGE_NAME_SERVER = 'az1z04/mern-server'
         IMAGE_NAME_CLIENT = 'az1z04/mern-client'
     }
 
     stages {
+
         stage('Checkout') {
             steps {
                 checkout scm
             }
         }
 
+        /******************************
+         *      SERVER PIPELINE
+         ******************************/
         stage('Build Server Image') {
+            when {
+                changeset "Server/**"
+            }
             steps {
                 dir('Server') {
                     script {
@@ -35,7 +38,40 @@ pipeline {
             }
         }
 
+        stage('Scan Server Image') {
+            when {
+                changeset "Server/**"
+            }
+            steps {
+                script {
+                    bat """
+                    docker run --rm -v //var/run/docker.sock:/var/run/docker.sock ^
+                    aquasec/trivy:latest image --exit-code 0 --severity LOW,MEDIUM,HIGH,CRITICAL ${IMAGE_NAME_SERVER}:latest
+                    """
+                }
+            }
+        }
+
+        stage('Push Server Image') {
+            when {
+                changeset "Server/**"
+            }
+            steps {
+                script {
+                    docker.withRegistry('', DOCKERHUB_CREDENTIALS_ID) {
+                        dockerImageServer.push('latest')
+                    }
+                }
+            }
+        }
+
+        /******************************
+         *      CLIENT PIPELINE
+         ******************************/
         stage('Build Client Image') {
+            when {
+                changeset "Client/**"
+            }
             steps {
                 dir('Client') {
                     script {
@@ -45,33 +81,27 @@ pipeline {
             }
         }
 
-        stage('Scan Server Image') {
-            steps {
-                script {
-                    bat """
-                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock ^
-                    aquasec/trivy:latest image --exit-code 0 --severity LOW,MEDIUM,HIGH,CRITICAL ${IMAGE_NAME_SERVER}:latest
-                    """
-                }
-            }
-        }
-
         stage('Scan Client Image') {
+            when {
+                changeset "Client/**"
+            }
             steps {
                 script {
                     bat """
-                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock ^
+                    docker run --rm -v //var/run/docker.sock:/var/run/docker.sock ^
                     aquasec/trivy:latest image --exit-code 0 --severity LOW,MEDIUM,HIGH,CRITICAL ${IMAGE_NAME_CLIENT}:latest
                     """
                 }
             }
         }
 
-        stage('Push Images to Docker Hub') {
+        stage('Push Client Image') {
+            when {
+                changeset "Client/**"
+            }
             steps {
                 script {
                     docker.withRegistry('', DOCKERHUB_CREDENTIALS_ID) {
-                        dockerImageServer.push('latest')
                         dockerImageClient.push('latest')
                     }
                 }
@@ -79,33 +109,30 @@ pipeline {
         }
     }
 
-    /***************************************
-     *          NETTOYAGE FINAL
-     ***************************************/
+    /******************************
+     *        NETTOYAGE FINAL
+     ******************************/
     post {
         always {
-            echo "🔄 Nettoyage du pipeline..."
+            echo "Nettoyage..."
 
-            // Supprimer les conteneurs arrêtés
+            // Supprimer conteneurs stoppés
             bat """
-            echo 🗑️ Suppression des conteneurs arrêtés...
             docker container prune -f
             """
 
-            // Supprimer les images intermédiaires (dangling)
+            // Supprimer images intermédiaires
             bat """
-            echo 🖼️ Suppression des images intermédiaires...
             docker image prune -f
             """
 
-            // Supprimer les images MERN locales (facultatif mais recommandé)
+            // Nettoyage images mern locales (Windows)
             bat """
-            echo 🧹 Suppression des images locales MERN...
-            docker images | findstr "mern-server" >nul && docker rmi -f ${IMAGE_NAME_SERVER}:latest || echo "Pas d'image server à supprimer"
-            docker images | findstr "mern-client" >nul && docker rmi -f ${IMAGE_NAME_CLIENT}:latest || echo "Pas d'image client à supprimer"
+            for /f "tokens=3" %%i in ('docker images ^| findstr "mern-server"') do docker rmi -f %%i
+            for /f "tokens=3" %%i in ('docker images ^| findstr "mern-client"') do docker rmi -f %%i
             """
 
-            echo "✨ Nettoyage terminé."
+            echo "Nettoyage terminé."
         }
     }
 }
