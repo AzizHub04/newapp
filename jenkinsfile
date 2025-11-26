@@ -1,10 +1,23 @@
 def dockerImageServer
 def dockerImageClient
+        }
+    }
 
-pipeline {
-    agent any
+    post {
+        always {
+            script {
+                bat """
+                echo Cleaning temporary Docker artifacts...
+                docker rmi -f ${IMAGE_NAME_SERVER}:latest 2>NUL || echo Server image not present
+                docker rmi -f ${IMAGE_NAME_CLIENT}:latest 2>NUL || echo Client image not present
+                docker system prune -af 2>NUL || echo Docker prune failed
+                """
+            }
+        }
+    }
+}
 
-    triggers {
+```
         // Vérifie le repo toutes les 5 minutes
         pollSCM('H/5 * * * *')
     }
