@@ -27,7 +27,7 @@ pipeline {
 
         stage('Build Server Image') {
             steps {
-                dir('server') {
+                    dir('Server') {
                     script {
                         // Tag "latest" 
                         dockerImageServer = docker.build("${IMAGE_NAME_SERVER}:latest")
@@ -38,7 +38,7 @@ pipeline {
 
         stage('Build Client Image') {
             steps {
-                dir('client') {
+                    dir('Client') {
                     script {
                         dockerImageClient = docker.build("${IMAGE_NAME_CLIENT}:latest")
                     }
